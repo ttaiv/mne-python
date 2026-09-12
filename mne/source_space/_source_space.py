@@ -46,7 +46,7 @@ from ..surface import (
     _CheckInsideSphere,
     _compute_nearest,
     _create_surf_spacing,
-    _decimate_surface_spacing,
+    _decimate_surface_euclidean,
     _get_ico_surface,
     _get_surf_neighbors,
     _keep_largest_component,
@@ -2041,12 +2041,13 @@ def _complete_vol_src(sp, subject=None):
 def _surf_from_mesh(rr, tris, subject, spacing="all"):
     """Build a source-space-ready surf dict from vertices/triangles (in m)."""
     surf = dict(rr=np.asarray(rr, float), tris=np.asarray(tris, np.int64))
-    complete_surface_info(surf, do_neighbor_vert=spacing != "all", copy=False)
+    complete_surface_info(surf, do_neighbor_vert=False, copy=False)
     if spacing == "all":
         surf["inuse"] = np.ones(surf["np"], int)
     else:
-        _decimate_surface_spacing(surf, spacing)
-        del surf["neighbor_vert"]
+        surf["inuse"] = _decimate_surface_euclidean(
+            surf["rr"], spacing / 1000.0
+        ).astype(int)
     sizes = _normalize_vectors(surf["nn"])
     surf["inuse"][sizes <= 0] = False
     surf["nuse"] = int(surf["inuse"].sum())
@@ -2127,18 +2128,21 @@ def setup_subcortical_source_space(
         each tessellated mesh, discarding disconnected islands (the
         marching-cubes equivalent of FreeSurfer's
         ``mris_extract_main_component``).
-    spacing : int | "all"
-        The approximate spacing to use to subsample each mesh, in mesh edges
-        (i.e., an integer of 5 approximately keeps every fifth vertex along
-        the mesh). Unlike the integer spacing accepted by
-        :func:`setup_source_space`, this is not calibrated to a physical
-        distance in mm, because these meshes (tessellated from an anatomical
-        segmentation or supplied externally) do not have the regular,
-        near-uniform triangulation of a FreeSurfer cortical surface.
-        ``"ico#"``/``"oct#"`` spacing, as accepted by
-        :func:`setup_source_space`, is not supported here, as it relies on a
-        spherical registration that does not exist for these meshes. Default
-        is ``"all"``, using every mesh vertex.
+    spacing : float | int | "all"
+        The minimum Euclidean distance (in mm) to enforce between
+        neighboring source-space vertices on the mesh. Vertices are greedily
+        kept in mesh order, discarding any vertex within ``spacing`` mm of
+        one already kept, which guarantees at least ``spacing`` mm between
+        all kept vertices regardless of the mesh's local triangulation
+        density. This differs from the integer ``spacing`` accepted by
+        :func:`setup_source_space`, which counts mesh edges and only
+        approximates a physical distance on the regular triangulation of a
+        FreeSurfer cortical surface, an approximation that does not hold for
+        these meshes (tessellated from an anatomical segmentation or
+        supplied externally). ``"ico#"``/``"oct#"`` spacing, as accepted by
+        :func:`setup_source_space`, is not supported here at all, as it
+        relies on a spherical registration that does not exist for these
+        meshes. Default is ``"all"``, using every mesh vertex.
     %(smooth)s
         Only used when ``label`` is provided.
     fill_hole_size : int | None
@@ -2179,13 +2183,11 @@ def setup_subcortical_source_space(
             "Exactly one of `label` or `surface` must be provided, got "
             f"label={label!r}, surface={surface!r}"
         )
-    stype, sval = _check_spacing(spacing)[:2]
-    if stype in ("ico", "oct"):
-        raise ValueError(
-            f'"ico#"/"oct#" spacing is not supported for subcortical source '
-            f'spaces, got spacing={spacing!r}. Use an integer or "all" instead.'
-        )
-    spacing = sval if stype == "spacing" else "all"
+    _validate_type(spacing, ("numeric", str), "spacing")
+    if isinstance(spacing, str):
+        _check_option("spacing", spacing, ("all",))
+    elif spacing <= 0:
+        raise ValueError(f"spacing must be > 0 if numeric, got {spacing}")
 
     srcs = list()
     if label is not None:

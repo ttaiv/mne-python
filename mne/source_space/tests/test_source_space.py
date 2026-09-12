@@ -12,6 +12,7 @@ from numpy.testing import (
     assert_array_less,
     assert_equal,
 )
+from scipy.spatial import KDTree
 
 import mne
 from mne import (
@@ -729,7 +730,7 @@ def test_setup_subcortical_source_space(tmp_path):
     )
     assert_allclose(src_surface_dict[0]["rr"], src_surface[0]["rr"])
 
-    # spacing: approximate (edge-count-based) decimation
+    # spacing: real Euclidean minimum spacing (in mm) between kept vertices
     src_spacing = setup_subcortical_source_space(
         "sample",
         surface=fname_surf,
@@ -738,12 +739,18 @@ def test_setup_subcortical_source_space(tmp_path):
         spacing=5,
     )
     assert 0 < src_spacing[0]["nuse"] < src_surface[0]["nuse"]
-    # "ico#"/"oct#" spacing is not supported for these meshes
-    for spacing in ("ico4", "oct6"):
-        with pytest.raises(ValueError, match="not supported"):
-            setup_subcortical_source_space(
-                "sample", surface=fname_surf, subjects_dir=subjects_dir, spacing=spacing
-            )
+    kept_mm = src_spacing[0]["rr"][src_spacing[0]["vertno"]] * 1000.0
+    nn = KDTree(kept_mm).query(kept_mm, k=2)[0][:, 1]
+    assert_array_less(5 - 1e-6, nn)
+    # only "all" is supported besides a positive number
+    with pytest.raises(ValueError, match="Invalid value"):
+        setup_subcortical_source_space(
+            "sample", surface=fname_surf, subjects_dir=subjects_dir, spacing="oct6"
+        )
+    with pytest.raises(ValueError, match="must be > 0"):
+        setup_subcortical_source_space(
+            "sample", surface=fname_surf, subjects_dir=subjects_dir, spacing=0
+        )
 
     # I/O roundtrip
     fname_temp = tmp_path / "subcortical-src.fif"

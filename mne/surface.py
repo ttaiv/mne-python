@@ -1342,6 +1342,28 @@ def _decimate_surface_spacing(surf, spacing):
     return surf
 
 
+def _decimate_surface_euclidean(rr, spacing):
+    """Greedily keep vertices with pairwise distance >= spacing (same units as rr).
+
+    Unlike `_decimate_surface_spacing` (which counts mesh edges and only
+    approximates physical distance on a near-regular mesh), this measures
+    real Euclidean distance, so it gives a guaranteed minimum spacing
+    between kept vertices regardless of mesh regularity.
+    """
+    from scipy.spatial import KDTree
+
+    tree = KDTree(rr)
+    n = len(rr)
+    excluded = np.zeros(n, bool)
+    inuse = np.zeros(n, bool)
+    for i in range(n):
+        if excluded[i]:
+            continue
+        inuse[i] = True
+        excluded[tree.query_ball_point(rr[i], r=spacing)] = True
+    return inuse
+
+
 @verbose
 def write_surface(
     fname,
