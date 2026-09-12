@@ -729,6 +729,22 @@ def test_setup_subcortical_source_space(tmp_path):
     )
     assert_allclose(src_surface_dict[0]["rr"], src_surface[0]["rr"])
 
+    # spacing: approximate (edge-count-based) decimation
+    src_spacing = setup_subcortical_source_space(
+        "sample",
+        surface=fname_surf,
+        subjects_dir=subjects_dir,
+        keep_largest_component=False,
+        spacing=5,
+    )
+    assert 0 < src_spacing[0]["nuse"] < src_surface[0]["nuse"]
+    # "ico#"/"oct#" spacing is not supported for these meshes
+    for spacing in ("ico4", "oct6"):
+        with pytest.raises(ValueError, match="not supported"):
+            setup_subcortical_source_space(
+                "sample", surface=fname_surf, subjects_dir=subjects_dir, spacing=spacing
+            )
+
     # I/O roundtrip
     fname_temp = tmp_path / "subcortical-src.fif"
     write_source_spaces(fname_temp, src_label)

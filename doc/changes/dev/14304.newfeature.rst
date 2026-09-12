@@ -1,0 +1,1 @@
+Add a ``spacing`` parameter to :func:`mne.setup_subcortical_source_space` to approximately subsample the mesh vertices used per structure, by `Teemu Taivainen`_.
